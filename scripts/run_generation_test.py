@@ -27,6 +27,7 @@ from escreveai.llm import (
     criar_prompt_geracao,
     criar_prompt_geracao_llm_only,
 )
+from escreveai.pipeline_report import imprimir_resumo_pipeline
 from escreveai.rag_selection import (
     montar_auditoria,
     selecionar_contexto_rag_robusto,
@@ -105,120 +106,6 @@ def imprimir_resultados(resultados: list[dict[str, Any]]) -> None:
         print()
         print(r["texto_chunk"][:300])
         print()
-
-
-def _score_chunk(chunk: dict[str, Any]) -> float:
-    score = chunk.get("score_similaridade")
-    return float(score) if isinstance(score, (int, float)) else 0.0
-
-
-def _formatar_score(score: float) -> str:
-    return f"{score:.4f}"
-
-
-def _rotulo_ultimos_chunks(indice: int, total: int) -> str:
-    if indice == total - 1:
-        return "Chunk Último"
-    if indice == total - 2:
-        return "Chunk Penúltimo"
-    if indice == total - 3:
-        return "Chunk Antepenúltimo"
-    return f"Chunk {indice + 1}"
-
-
-def imprimir_resumo_pipeline(
-    chunks_candidatos: list[dict[str, Any]],
-    selecao,
-) -> None:
-    """Imprime resumo legível do primeiro ranking, reranking e contexto final."""
-    candidatos_ordenados = sorted(
-        chunks_candidatos,
-        key=_score_chunk,
-        reverse=True,
-    )
-    total_candidatos = len(candidatos_ordenados)
-
-    print()
-    print("=" * 80)
-    print("RESUMO DO PIPELINE RAG")
-    print("=" * 80)
-    print(
-        f"Encontrados do Primeiro Ranking: {total_candidatos} chunk(s)"
-    )
-    print()
-
-    print("-- PRIMEIRO RANQUEAMENTO")
-    print(f"- {total_candidatos} chunks candidatos encontrados")
-
-    if total_candidatos == 0:
-        print("- (nenhum chunk recuperado)")
-    else:
-        indices_exibidos: set[int] = set()
-
-        for i in range(min(3, total_candidatos)):
-            chunk = candidatos_ordenados[i]
-            print(
-                f"- Chunk {i + 1}: "
-                f"{_formatar_score(_score_chunk(chunk))}"
-            )
-            indices_exibidos.add(i)
-
-        if total_candidatos > 3:
-            print()
-            for i in range(max(3, total_candidatos - 3), total_candidatos):
-                if i in indices_exibidos:
-                    continue
-                chunk = candidatos_ordenados[i]
-                print(
-                    f"- {_rotulo_ultimos_chunks(i, total_candidatos)}: "
-                    f"{_formatar_score(_score_chunk(chunk))}"
-                )
-
-    print()
-    print("-- RERANKING - Projetos Selecionados")
-
-    if selecao.modo_geracao == "llm_only":
-        print(f"- Fallback LLM-only ({selecao.motivo_fallback or 'sem motivo'})")
-        if selecao.score_maximo is not None:
-            print(
-                f"- Score máximo entre candidatos: "
-                f"{_formatar_score(selecao.score_maximo)} "
-                f"(threshold: {selecao.score_threshold:.2f})"
-            )
-    elif not selecao.projetos_selecionados:
-        print("- (nenhum projeto selecionado)")
-    else:
-        rotulos = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        for i, projeto in enumerate(selecao.projetos_selecionados):
-            rotulo = rotulos[i] if i < len(rotulos) else str(i + 1)
-            titulo = projeto.get("projeto_titulo") or "(sem título)"
-            score = projeto.get("score_projeto", 0.0)
-            print(
-                f"- PROJETO {rotulo}: {titulo}, "
-                f"score ponderado do ranking: {_formatar_score(float(score))}"
-            )
-
-    print()
-    if selecao.modo_geracao == "rag":
-        qtd_chunks = len(selecao.chunks_finais)
-        qtd_projetos = len({
-            c.get("projeto_id") for c in selecao.chunks_finais
-        })
-        print(
-            f"-- CONTEXTO MONTADO COM {qtd_chunks} chunk(s) e "
-            f"{qtd_projetos} projeto(s) único(s)"
-        )
-    else:
-        print("-- CONTEXTO MONTADO COM 0 chunk(s) e 0 projeto(s) único(s)")
-
-    if selecao.avisos:
-        print()
-        print("Avisos:")
-        for aviso in selecao.avisos:
-            print(f"- {aviso}")
-
-    print("=" * 80)
-    print()
 
 
 def main() -> None:
@@ -322,7 +209,11 @@ def main() -> None:
             )
             print(arquivos_baixados)
 
-        imprimir_resumo_pipeline(chunks_candidatos, selecao)
+        imprimir_resumo_pipeline(
+            chunks_candidatos,
+            selecao,
+            top_chunks_per_project=5,
+        )
 
 
 if __name__ == "__main__":
